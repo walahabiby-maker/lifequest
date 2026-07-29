@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LifeQuest — Explorer's Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="app-header">
+    <div class="brand">
+      <svg class="compass" viewBox="0 0 100 100" width="40" height="40" aria-hidden="true">
+        <circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="2"/>
+        <circle cx="50" cy="50" r="3" fill="currentColor"/>
+        <path d="M50 8 L58 50 L50 92 L42 50 Z" fill="currentColor" opacity="0.9"/>
+        <path d="M8 50 L50 42 L92 50 L50 58 Z" fill="currentColor" opacity="0.4"/>
+      </svg>
+      <div>
+        <h1>LifeQuest</h1>
+        <p class="tagline">Explorer's Log</p>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="tab-btn" data-tab="experiences">Experiences</button>
+      <button class="tab-btn" data-tab="countries">Countries</button>
+      <button class="tab-btn" data-tab="achievements">Achievements</button>
+      <button class="tab-btn" data-tab="statistics">Statistics</button>
+      <button class="tab-btn" data-tab="journal">Journal</button>
+      <button class="tab-btn" data-tab="timeline">Timeline</button>
+      <button class="tab-btn" data-tab="profile">Profile</button>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <!-- DASHBOARD -->
+    <section class="tab-panel active" id="tab-dashboard">
+      <div class="panel-title">
+        <h2>Explorer Dashboard</h2>
+        <p class="sub">Your progress at a glance</p>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card stamp-accent">
+          <span class="stat-label">Explorer Level</span>
+          <span class="stat-value" id="stat-level">1</span>
+          <span class="stat-sub" id="stat-rank">Beginner Explorer</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Total XP</span>
+          <span class="stat-value" id="stat-xp">0</span>
+          <span class="stat-sub" id="stat-xp-next">4 XP to next level</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Experiences Completed</span>
+          <span class="stat-value" id="stat-completed">0<span class="stat-of" id="stat-completed-of">/318</span></span>
+          <span class="stat-sub" id="stat-completion-rate">0% complete</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Countries Visited</span>
+          <span class="stat-value" id="stat-countries">0<span class="stat-of" id="stat-countries-of">/196</span></span>
+          <span class="stat-sub" id="stat-fav-category">Favorite category: —</span>
+        </div>
+      </div>
+
+      <div class="progress-block">
+        <div class="progress-label">
+          <span>Progress to next level</span>
+          <span id="progress-pct">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+
+      <div class="chart-grid">
+        <div class="chart-card">
+          <h3>Completed by Category</h3>
+          <canvas id="chart-category" height="220"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Countries by Continent</h3>
+          <canvas id="chart-continent" height="220"></canvas>
+        </div>
+      </div>
+
+      <div class="achievements-teaser">
+        <h3>Recently Unlocked</h3>
+        <div id="recent-achievements" class="badge-row"></div>
+      </div>
+    </section>
+
+    <!-- EXPERIENCES -->
+    <section class="tab-panel" id="tab-experiences">
+      <div class="panel-title">
+        <h2>Experience Database</h2>
+        <p class="sub">318 experiences across 8 categories — track what you've done and what's next</p>
+      </div>
+      <div class="filters">
+        <input type="search" id="exp-search" placeholder="Search experiences…">
+        <select id="exp-filter-category"><option value="">All Categories</option></select>
+        <select id="exp-filter-difficulty"><option value="">All Difficulties</option></select>
+        <select id="exp-filter-status">
+          <option value="">All</option>
+          <option value="completed">Completed</option>
+          <option value="not-completed">Not Completed</option>
+        </select>
+        <select id="exp-filter-season"><option value="">Any Season</option></select>
+      </div>
+      <div class="list-wrap" id="experiences-list"></div>
+    </section>
+
+    <!-- COUNTRIES -->
+    <section class="tab-panel" id="tab-countries">
+      <div class="panel-title">
+        <h2>Countries Passport</h2>
+        <p class="sub">196 countries — stamp your passport as you go</p>
+      </div>
+      <div class="filters">
+        <input type="search" id="country-search" placeholder="Search countries…">
+        <select id="country-filter-continent"><option value="">All Continents</option></select>
+        <select id="country-filter-status">
+          <option value="">All</option>
+          <option value="visited">Visited</option>
+          <option value="not-visited">Not Visited</option>
+        </select>
+      </div>
+      <div class="list-wrap" id="countries-list"></div>
+    </section>
+
+    <!-- ACHIEVEMENTS -->
+    <section class="tab-panel" id="tab-achievements">
+      <div class="panel-title">
+        <h2>Achievements</h2>
+        <p class="sub">Milestones that unlock automatically as you log progress</p>
+      </div>
+      <div class="badge-grid" id="achievements-grid"></div>
+    </section>
+
+    <!-- STATISTICS -->
+    <section class="tab-panel" id="tab-statistics">
+      <div class="panel-title">
+        <h2>Statistics</h2>
+        <p class="sub">The full breakdown</p>
+      </div>
+      <div id="stats-content"></div>
+    </section>
+
+    <!-- JOURNAL -->
+    <section class="tab-panel" id="tab-journal">
+      <div class="panel-title">
+        <h2>Adventure Journal</h2>
+        <p class="sub">Log the stories behind your experiences</p>
+      </div>
+      <form class="entry-form" id="journal-form">
+        <input type="date" id="journal-date" required>
+        <input type="text" id="journal-experience" placeholder="Experience" required>
+        <input type="text" id="journal-location" placeholder="Location">
+        <select id="journal-rating">
+          <option value="">Rating</option>
+          <option value="1">★</option><option value="2">★★</option><option value="3">★★★</option>
+          <option value="4">★★★★</option><option value="5">★★★★★</option>
+        </select>
+        <textarea id="journal-story" placeholder="Your story / memory…" rows="2"></textarea>
+        <button type="submit">Add Entry</button>
+      </form>
+      <div class="entry-list" id="journal-list"></div>
+    </section>
+
+    <!-- TIMELINE -->
+    <section class="tab-panel" id="tab-timeline">
+      <div class="panel-title">
+        <h2>Lifetime Timeline</h2>
+        <p class="sub">The big moments, year by year</p>
+      </div>
+      <form class="entry-form" id="timeline-form">
+        <input type="number" id="timeline-year" placeholder="Year" min="1950" max="2100" required>
+        <input type="text" id="timeline-experience" placeholder="Experience" required>
+        <input type="text" id="timeline-location" placeholder="Location">
+        <textarea id="timeline-memory" placeholder="Memory…" rows="2"></textarea>
+        <button type="submit">Add Milestone</button>
+      </form>
+      <div class="entry-list" id="timeline-list"></div>
+    </section>
+
+    <!-- PROFILE -->
+    <section class="tab-panel" id="tab-profile">
+      <div class="panel-title">
+        <h2>Explorer Profile</h2>
+        <p class="sub">Your identity in the field</p>
+      </div>
+      <div class="profile-card">
+        <label>Explorer Name
+          <input type="text" id="profile-name" placeholder="Your name">
+        </label>
+        <label>Personal Motto
+          <input type="text" id="profile-motto" placeholder="e.g. Collect moments, not things">
+        </label>
+        <label>Member Since
+          <input type="date" id="profile-since">
+        </label>
+        <div class="profile-stats" id="profile-stats"></div>
+        <button id="reset-data" class="danger">Reset All Data</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">LifeQuest — your progress is saved automatically in this browser.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
