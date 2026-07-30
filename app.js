@@ -1,35 +1,68 @@
+// ---------- SUPABASE ----------
+const supabaseClient = (window.supabase && SUPABASE_CONFIG && SUPABASE_CONFIG.url
+  && SUPABASE_CONFIG.url !== "YOUR_SUPABASE_PROJECT_URL")
+  ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey)
+  : null;
+
+let currentUser = null;
+
 // ---------- STATE ----------
 const STORAGE_KEY = 'lifequest_state_v1';
+const EMPTY_STATE = () => ({ experiences: {}, countries: {}, profile: {}, journal: [], timeline: [] });
 
-function loadState() {
+function loadLocalState() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try { return JSON.parse(raw); } catch (e) { /* fall through */ }
   }
-  return { experiences: {}, countries: {}, profile: {}, journal: [], timeline: [] };
+  return EMPTY_STATE();
 }
-function saveState() {
+function cacheLocal() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-let state = loadState();
+let saveTimer = null;
+function saveState() {
+  cacheLocal();
+  if (!supabaseClient || !currentUser) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await supabaseClient.from('progress').upsert({
+        user_id: currentUser.id,
+        display_name: state.profile.name || null,
+        data: state,
+        updated_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Cloud save failed (kept locally):', err);
+    }
+  }, 600);
+}
+
+let state = loadLocalState();
 
 const RARITY_XP = { Common: 10, Rare: 50, Epic: 100, Legendary: 250 };
 
-// ---------- DERIVED DATA HELPERS ----------
-function isCompleted(expId) {
-  return !!(state.experiences[expId] && state.experiences[expId].completed);
+// ---------- DERIVED DATA HELPERS (all accept an optional state object, default = current user) ----------
+function isCompletedFor(st, expId) {
+  return !!(st.experiences[expId] && st.experiences[expId].completed);
 }
-function isVisited(countryName) {
-  return !!(state.countries[countryName] && state.countries[countryName].visited);
+function isVisitedFor(st, countryName) {
+  return !!(st.countries[countryName] && st.countries[countryName].visited);
 }
-function totalXP() {
+function isCompleted(expId) { return isCompletedFor(state, expId); }
+function isVisited(countryName) { return isVisitedFor(state, countryName); }
+
+function totalXPFor(st) {
   let xp = 0;
   for (const e of LQ_DATA.experiences) {
-    if (isCompleted(e.id)) xp += RARITY_XP[e.rarity] || 0;
+    if (isCompletedFor(st, e.id)) xp += RARITY_XP[e.rarity] || 0;
   }
   return xp;
 }
+function totalXP() { return totalXPFor(state); }
+
 function currentLevelInfo(xp) {
   let current = LQ_DATA.levels[0];
   for (const lvl of LQ_DATA.levels) {
@@ -39,12 +72,14 @@ function currentLevelInfo(xp) {
   const next = LQ_DATA.levels[idx + 1] || null;
   return { current, next };
 }
-function completedCount() {
-  return LQ_DATA.experiences.filter(e => isCompleted(e.id)).length;
+function completedCountFor(st) {
+  return LQ_DATA.experiences.filter(e => isCompletedFor(st, e.id)).length;
 }
-function visitedCount() {
-  return LQ_DATA.countries.filter(c => isVisited(c.name)).length;
+function completedCount() { return completedCountFor(state); }
+function visitedCountFor(st) {
+  return LQ_DATA.countries.filter(c => isVisitedFor(st, c.name)).length;
 }
+function visitedCount() { return visitedCountFor(state); }
 function categoryCompletionCounts() {
   const counts = {};
   for (const cat of LQ_DATA.meta.categories) counts[cat] = 0;
@@ -476,12 +511,196 @@ document.getElementById('timeline-form').addEventListener('submit', (ev) => {
 });
 
 document.getElementById('reset-data').addEventListener('click', () => {
-  if (confirm('This will erase all your LifeQuest progress in this browser. Are you sure?')) {
-    localStorage.removeItem(STORAGE_KEY);
-    state = loadState();
+  if (confirm('This will erase all your LifeQuest progress. Are you sure?')) {
+    state = EMPTY_STATE();
+    saveState();
     renderAll();
   }
 });
 
+// ---------- AUTH ----------
+document.getElementById('login-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!supabaseClient) return;
+  const email = document.getElementById('login-email').value;
+  const statusEl = document.getElementById('auth-status');
+  statusEl.classList.remove('error');
+  statusEl.textContent = 'Sending magic link…';
+  try {
+    const { error } = await supabaseClient.auth.signInWithOtp({
+      email, options: { emailRedirectTo: window.location.origin }
+    });
+    if (error) throw error;
+    statusEl.textContent = 'Check your email for a sign-in link!';
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+    statusEl.classList.add('error');
+  }
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  if (supabaseClient) await supabaseClient.auth.signOut();
+  currentUser = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('auth-gate').style.display = 'flex';
+});
+
+async function onLoggedIn(user) {
+  currentUser = user;
+  document.getElementById('account-email').textContent = user.email;
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  await loadRemoteState();
+  renderAll();
+  loadGroups();
+}
+
+async function loadRemoteState() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('progress').select('data').eq('user_id', currentUser.id).maybeSingle();
+    if (error) throw error;
+    if (data && data.data && Object.keys(data.data).length) {
+      state = { ...EMPTY_STATE(), ...data.data };
+      cacheLocal();
+    } else {
+      // First login: push whatever local/guest progress exists up to the cloud.
+      await supabaseClient.from('progress').upsert({
+        user_id: currentUser.id,
+        display_name: state.profile.name || null,
+        data: state,
+        updated_at: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    console.error('Failed to load cloud progress, using local cache instead:', err);
+  }
+}
+
+async function initAuth() {
+  if (!supabaseClient) {
+    // No Supabase configured yet — run in local-only (single browser) mode.
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('app').style.display = '';
+    document.getElementById('account-email').textContent = 'Local mode (not synced)';
+    document.getElementById('logout-btn').style.display = 'none';
+    renderAll();
+    return;
+  }
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) {
+    await onLoggedIn(session.user);
+  } else {
+    document.getElementById('auth-gate').style.display = 'flex';
+  }
+  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    if (session && (!currentUser || currentUser.id !== session.user.id)) {
+      await onLoggedIn(session.user);
+    } else if (!session && currentUser) {
+      currentUser = null;
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('auth-gate').style.display = 'flex';
+    }
+  });
+}
+
+// ---------- GROUPS ----------
+async function loadGroups() {
+  if (!supabaseClient) {
+    document.getElementById('groups-list').innerHTML =
+      '<p class="sub">Groups need cloud sync set up — see the setup instructions.</p>';
+    return;
+  }
+  try {
+    const { data, error } = await supabaseClient.rpc('my_groups');
+    if (error) throw error;
+    renderGroupsList(data || []);
+  } catch (err) {
+    document.getElementById('groups-status').textContent = 'Error loading groups: ' + err.message;
+  }
+}
+function renderGroupsList(groups) {
+  document.getElementById('groups-list').innerHTML = groups.length
+    ? groups.map(g => `
+      <div class="group-card" data-group-id="${g.id}" data-group-name="${g.name}">
+        <div>
+          <div class="group-name">${g.name}</div>
+          <div class="group-meta">${g.member_count} member${g.member_count === 1 ? '' : 's'} · code <span class="group-code">${g.code}</span></div>
+        </div>
+        <button class="view-summary-btn" data-group-id="${g.id}" data-group-name="${g.name}">View Summary</button>
+      </div>`).join('')
+    : '<p class="sub">You\'re not in any groups yet — create one or join with a code.</p>';
+}
+
+document.getElementById('create-group-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!supabaseClient) return;
+  const name = document.getElementById('create-group-name').value;
+  const statusEl = document.getElementById('groups-status');
+  try {
+    const { data, error } = await supabaseClient.rpc('create_group', { p_name: name });
+    if (error) throw error;
+    const row = data[0];
+    statusEl.textContent = `Group created! Share this code: ${row.code}`;
+    ev.target.reset();
+    loadGroups();
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+  }
+});
+
+document.getElementById('join-group-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!supabaseClient) return;
+  const code = document.getElementById('join-group-code').value;
+  const statusEl = document.getElementById('groups-status');
+  try {
+    const { data, error } = await supabaseClient.rpc('join_group', { p_code: code });
+    if (error) throw error;
+    statusEl.textContent = `Joined "${data[0].name}"!`;
+    ev.target.reset();
+    loadGroups();
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+  }
+});
+
+document.getElementById('groups-list').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('.view-summary-btn');
+  if (!btn) return;
+  const groupId = btn.dataset.groupId;
+  const groupName = btn.dataset.groupName;
+  const wrap = document.getElementById('group-summary-wrap');
+  const title = document.getElementById('group-summary-title');
+  const container = document.getElementById('group-summary');
+  wrap.style.display = 'block';
+  title.textContent = `Group Summary — ${groupName}`;
+  container.innerHTML = '<p class="sub">Loading…</p>';
+  try {
+    const { data, error } = await supabaseClient.rpc('group_summary', { p_group_id: groupId });
+    if (error) throw error;
+    const rows = (data || []).map(m => {
+      const st = { ...EMPTY_STATE(), ...(m.data || {}) };
+      const xp = totalXPFor(st);
+      const { current } = currentLevelInfo(xp);
+      return {
+        name: m.display_name || 'Explorer',
+        xp, level: current.level, rank: current.rank,
+        completed: completedCountFor(st), countries: visitedCountFor(st),
+      };
+    }).sort((a, b) => b.xp - a.xp);
+    container.innerHTML = rows.map((r, i) => `
+      <div class="summary-row">
+        <span class="rank-num">#${i + 1}</span>
+        <span class="name-cell">${r.name}<br><span class="badge-req">${r.rank} · Lvl ${r.level}</span></span>
+        <span class="metric">${r.xp} XP</span>
+        <span class="metric">${r.completed} exp.</span>
+        <span class="metric">${r.countries} countries</span>
+      </div>`).join('') || '<p class="sub">No members found.</p>';
+  } catch (err) {
+    container.innerHTML = `<p class="sub">Error loading summary: ${err.message}</p>`;
+  }
+});
+
 // ---------- INIT ----------
-renderAll();
+initAuth();

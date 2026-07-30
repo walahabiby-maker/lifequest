@@ -10,7 +10,25 @@
 </head>
 <body>
 
-<div class="app">
+<div class="auth-gate" id="auth-gate">
+  <div class="auth-card">
+    <svg class="compass" viewBox="0 0 100 100" width="48" height="48" aria-hidden="true">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="2"/>
+      <circle cx="50" cy="50" r="3" fill="currentColor"/>
+      <path d="M50 8 L58 50 L50 92 L42 50 Z" fill="currentColor" opacity="0.9"/>
+      <path d="M8 50 L50 42 L92 50 L50 58 Z" fill="currentColor" opacity="0.4"/>
+    </svg>
+    <h1>LifeQuest</h1>
+    <p class="sub">Sign in to save your progress and join groups</p>
+    <form id="login-form">
+      <input type="email" id="login-email" placeholder="you@example.com" required>
+      <button type="submit">Send Magic Link</button>
+    </form>
+    <p class="auth-status" id="auth-status"></p>
+  </div>
+</div>
+
+<div class="app" id="app" style="display:none;">
 
   <header class="app-header">
     <div class="brand">
@@ -30,11 +48,16 @@
       <button class="tab-btn" data-tab="experiences">Experiences</button>
       <button class="tab-btn" data-tab="countries">Countries</button>
       <button class="tab-btn" data-tab="achievements">Achievements</button>
+      <button class="tab-btn" data-tab="groups">Groups</button>
       <button class="tab-btn" data-tab="statistics">Statistics</button>
       <button class="tab-btn" data-tab="journal">Journal</button>
       <button class="tab-btn" data-tab="timeline">Timeline</button>
       <button class="tab-btn" data-tab="profile">Profile</button>
     </nav>
+    <div class="header-account">
+      <span id="account-email" class="account-email"></span>
+      <button id="logout-btn" class="link-btn">Log out</button>
+    </div>
   </header>
 
   <main id="main">
@@ -141,6 +164,34 @@
       <div class="badge-grid" id="achievements-grid"></div>
     </section>
 
+    <!-- GROUPS -->
+    <section class="tab-panel" id="tab-groups">
+      <div class="panel-title">
+        <h2>Groups</h2>
+        <p class="sub">Create a group and share the code, or join one with a code someone gave you</p>
+      </div>
+
+      <div class="groups-actions">
+        <form class="entry-form" id="create-group-form">
+          <input type="text" id="create-group-name" placeholder="Group name (e.g. Family Explorers)" required>
+          <button type="submit">Create Group</button>
+        </form>
+        <form class="entry-form" id="join-group-form">
+          <input type="text" id="join-group-code" placeholder="Enter invite code" maxlength="6" required>
+          <button type="submit">Join Group</button>
+        </form>
+      </div>
+      <p class="auth-status" id="groups-status"></p>
+
+      <h3 class="section-label">Your Groups</h3>
+      <div id="groups-list" class="groups-list"></div>
+
+      <div id="group-summary-wrap" style="display:none;">
+        <h3 class="section-label" id="group-summary-title">Group Summary</h3>
+        <div id="group-summary" class="list-wrap"></div>
+      </div>
+    </section>
+
     <!-- STATISTICS -->
     <section class="tab-panel" id="tab-statistics">
       <div class="panel-title">
@@ -214,6 +265,8 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>
