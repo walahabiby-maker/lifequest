@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lifequest-shell-v1';
+const CACHE_NAME = 'lifequest-shell-v2';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -27,25 +27,25 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Stale-while-revalidate: serve cached app-shell files instantly, then
-// refresh the cache in the background so the next load picks up updates.
-// Anything else (e.g. Supabase API calls) just goes straight to the network.
+// Network-first: always try to fetch the latest version first (so app
+// updates show up immediately whenever you're online), and only fall back
+// to the cached copy if the network request fails (i.e. actually offline).
+// Anything not part of the app shell (e.g. Supabase API calls) just goes
+// straight to the network, untouched.
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   const isShellFile = url.origin === self.location.origin;
   if (!isShellFile || event.request.method !== 'GET') return;
 
   event.respondWith(
-    caches.open(CACHE_NAME).then((cache) =>
-      cache.match(event.request).then((cached) => {
-        const fetchPromise = fetch(event.request)
-          .then((response) => {
-            if (response && response.status === 200) cache.put(event.request, response.clone());
-            return response;
-          })
-          .catch(() => cached);
-        return cached || fetchPromise;
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
       })
-    )
+      .catch(() => caches.open(CACHE_NAME).then((cache) => cache.match(event.request)))
   );
 });
