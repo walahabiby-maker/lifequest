@@ -5,6 +5,10 @@ const supabaseClient = (window.supabase && SUPABASE_CONFIG && SUPABASE_CONFIG.ur
   : null;
 
 let currentUser = null;
+let myReferralCode = null;
+let myReferralCount = 0;
+let myBonusXP = 0;
+let myReferredBy = null;
 
 // ---------- STATE ----------
 const STORAGE_KEY = 'lifequest_state_v1';
@@ -61,7 +65,7 @@ function totalXPFor(st) {
   }
   return xp;
 }
-function totalXP() { return totalXPFor(state); }
+function totalXP() { return totalXPFor(state) + myBonusXP; }
 
 function currentLevelInfo(xp) {
   let current = LQ_DATA.levels[0];
@@ -144,6 +148,8 @@ function achievementProgress(a) {
       const cats = new Set(completedExps.map(e => e.category));
       return cats.size;
     }
+    case 'referralCount':
+      return myReferralCount;
     default:
       return 0;
   }
@@ -196,8 +202,10 @@ function renderDashboard() {
   const contCounts = continentVisitCounts();
 
   if (typeof Chart === 'undefined') {
-    document.querySelectorAll('.chart-card canvas').forEach(c => {
-      c.insertAdjacentHTML('afterend', '<p class="sub">Charts unavailable offline — data still tracked below.</p>');
+    document.querySelectorAll('.chart-card').forEach(card => {
+      const existing = card.querySelector('.chart-fallback-msg');
+      if (existing) existing.remove();
+      card.insertAdjacentHTML('beforeend', '<p class="sub chart-fallback-msg">Charts unavailable offline — data still tracked below.</p>');
     });
   } else {
     try {
@@ -251,6 +259,11 @@ function rarityTagClass(r) {
 function experienceCardHTML(e) {
   const completed = isCompleted(e.id);
   const rec = state.experiences[e.id] || {};
+  const photoBlock = completed ? (
+    rec.photoUrl
+      ? `<img src="${rec.photoUrl}" class="item-photo-thumb" alt="Memory photo">`
+      : `<label class="item-photo-btn">📷 Add photo<input type="file" accept="image/*" class="photo-input" data-id="${e.id}" style="display:none;"></label>`
+  ) : '';
   return `
   <div class="list-item ${completed ? 'completed' : ''}" data-id="${e.id}">
     <input type="checkbox" class="exp-check" data-id="${e.id}" ${completed ? 'checked' : ''}>
@@ -263,6 +276,7 @@ function experienceCardHTML(e) {
         <span class="tag tag-diff">${e.season}</span>
         <span class="tag ${rarityTagClass(e.rarity)}">${e.rarity}</span>
       </div>
+      ${photoBlock}
     </div>
     <div class="item-xp">+${RARITY_XP[e.rarity]} XP</div>
   </div>`;
@@ -288,7 +302,16 @@ function renderExperiences() {
   const status = document.getElementById('exp-filter-status').value;
   const season = document.getElementById('exp-filter-season').value;
 
+  const chip = document.getElementById('track-filter-chip');
+  if (activeTrackFilter) {
+    chip.style.display = 'flex';
+    chip.innerHTML = `Showing track: <strong>${activeTrackFilter.name}</strong> <button class="clear-track-btn">Clear</button>`;
+  } else {
+    chip.style.display = 'none';
+  }
+
   const filtered = LQ_DATA.experiences.filter(e => {
+    if (activeTrackFilter && !activeTrackFilter.ids.includes(e.id)) return false;
     if (search && !e.name.toLowerCase().includes(search)) return false;
     if (cat && e.category !== cat) return false;
     if (diff && e.difficulty !== diff) return false;
@@ -416,11 +439,23 @@ function renderProfile() {
   const { current } = currentLevelInfo(xp);
   document.getElementById('profile-stats').innerHTML = `
     Rank: ${current.rank} (Level ${current.level})<br>
-    Total XP: ${xp.toLocaleString()}<br>
+    Total XP: ${xp.toLocaleString()}${myBonusXP ? ` (includes ${myBonusXP} referral bonus)` : ''}<br>
     Favorite Category: ${favoriteCategory()}<br>
     Countries Visited: ${visitedCount()} / ${LQ_DATA.countries.length}<br>
     Achievements Earned: ${achievementsUnlockedList().filter(a => a.unlocked).length} / ${LQ_DATA.achievements.length}
   `;
+
+  const linkInput = document.getElementById('referral-link');
+  const countText = document.getElementById('referral-count-text');
+  if (myReferralCode) {
+    linkInput.value = `${window.location.origin}${window.location.pathname}?ref=${myReferralCode}`;
+    countText.textContent = myReferralCount > 0
+      ? `${myReferralCount} friend${myReferralCount === 1 ? '' : 's'} joined using your link (+${myReferralCount * 25} bonus XP earned)`
+      : 'Share this link — you both get +25 XP when a friend joins.';
+  } else {
+    linkInput.value = '';
+    countText.textContent = supabaseClient ? 'Log in to get your referral link.' : 'Referral links need cloud sync set up.';
+  }
 }
 
 // ---------- RENDER ALL ----------
@@ -433,6 +468,7 @@ function renderAll() {
   safeRender(renderCountries);
   safeRender(renderWorldMap);
   safeRender(renderAchievements);
+  safeRender(renderTracks);
   safeRender(renderStatistics);
   safeRender(renderJournal);
   safeRender(renderTimeline);
@@ -453,6 +489,10 @@ document.getElementById('tabs').addEventListener('click', (ev) => {
 });
 
 document.getElementById('experiences-list').addEventListener('change', (ev) => {
+  if (ev.target.classList.contains('photo-input')) {
+    handlePhotoUpload(ev.target.dataset.id, ev.target.files[0]);
+    return;
+  }
   if (!ev.target.classList.contains('exp-check')) return;
   const id = ev.target.dataset.id;
   if (!state.experiences[id]) state.experiences[id] = {};
@@ -462,7 +502,29 @@ document.getElementById('experiences-list').addEventListener('change', (ev) => {
   }
   saveState();
   renderAll();
+  checkForNewUnlocks();
 });
+
+async function handlePhotoUpload(expId, file) {
+  if (!file) return;
+  if (!supabaseClient || !currentUser) {
+    alert('Photo memories need cloud sync set up — see the setup instructions.');
+    return;
+  }
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+  const path = `${currentUser.id}/${expId}-${Date.now()}.${ext}`;
+  try {
+    const { error: upErr } = await supabaseClient.storage.from('experience-photos').upload(path, file);
+    if (upErr) throw upErr;
+    const { data } = supabaseClient.storage.from('experience-photos').getPublicUrl(path);
+    if (!state.experiences[expId]) state.experiences[expId] = {};
+    state.experiences[expId].photoUrl = data.publicUrl;
+    saveState();
+    renderExperiences();
+  } catch (err) {
+    alert('Photo upload failed: ' + err.message);
+  }
+}
 
 document.getElementById('countries-list').addEventListener('change', (ev) => {
   if (!ev.target.classList.contains('country-check')) return;
@@ -474,6 +536,7 @@ document.getElementById('countries-list').addEventListener('change', (ev) => {
   }
   saveState();
   renderAll();
+  checkForNewUnlocks();
 });
 
 ['exp-search', 'exp-filter-category', 'exp-filter-difficulty', 'exp-filter-status', 'exp-filter-season']
@@ -529,6 +592,20 @@ document.getElementById('profile-leaderboard-optin').addEventListener('change', 
   }
 });
 
+document.getElementById('referral-copy').addEventListener('click', async () => {
+  const input = document.getElementById('referral-link');
+  if (!input.value) return;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    const btn = document.getElementById('referral-copy');
+    const original = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  } catch (err) {
+    input.select();
+  }
+});
+
 document.getElementById('reset-data').addEventListener('click', () => {
   if (confirm('This will erase all your LifeQuest progress. Are you sure?')) {
     state = EMPTY_STATE();
@@ -571,19 +648,25 @@ async function onLoggedIn(user) {
   document.getElementById('app').style.display = '';
   await loadRemoteState();
   renderAll();
+  checkForNewUnlocks();
   loadGroups();
   loadSuggestions();
   loadLeaderboard();
+  initReferral();
+  maybeShowOnboarding();
 }
 
 async function loadRemoteState() {
   try {
     const { data, error } = await supabaseClient
-      .from('progress').select('data, leaderboard_opt_in').eq('user_id', currentUser.id).maybeSingle();
+      .from('progress').select('data, leaderboard_opt_in, referred_by, bonus_xp')
+      .eq('user_id', currentUser.id).maybeSingle();
     if (error) throw error;
     if (data && data.data && Object.keys(data.data).length) {
       state = { ...EMPTY_STATE(), ...data.data };
       leaderboardOptIn = !!data.leaderboard_opt_in;
+      myReferredBy = data.referred_by || null;
+      myBonusXP = data.bonus_xp || 0;
       cacheLocal();
     } else {
       // First login: push whatever local/guest progress exists up to the cloud.
@@ -599,6 +682,39 @@ async function loadRemoteState() {
   }
 }
 
+async function initReferral() {
+  if (!supabaseClient) return;
+  try {
+    const { data: codeData, error: codeErr } = await supabaseClient.rpc('get_or_create_referral_code');
+    if (codeErr) throw codeErr;
+    myReferralCode = codeData;
+    const { data: countData, error: countErr } = await supabaseClient.rpc('my_referral_count');
+    if (!countErr) myReferralCount = countData || 0;
+    renderProfile();
+
+    const params = new URLSearchParams(window.location.search);
+    const refCode = params.get('ref');
+    if (refCode && !myReferredBy) {
+      try {
+        const { data: bonus, error: redeemErr } = await supabaseClient.rpc('redeem_referral', { p_code: refCode });
+        if (redeemErr) throw redeemErr;
+        myReferredBy = refCode.toUpperCase();
+        myBonusXP += bonus || 0;
+        renderAll();
+        alert(`Welcome! You and your friend each got +${bonus} XP for the referral.`);
+      } catch (err) {
+        console.error('Referral redeem failed:', err.message);
+      } finally {
+        params.delete('ref');
+        const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
+  } catch (err) {
+    console.error('Referral init failed:', err);
+  }
+}
+
 async function initAuth() {
   if (!supabaseClient) {
     // No Supabase configured yet — run in local-only (single browser) mode.
@@ -607,8 +723,10 @@ async function initAuth() {
     document.getElementById('account-email').textContent = 'Local mode (not synced)';
     document.getElementById('logout-btn').style.display = 'none';
     renderAll();
+    checkForNewUnlocks();
     loadSuggestions();
     loadLeaderboard();
+    maybeShowOnboarding();
     return;
   }
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -890,6 +1008,182 @@ async function loadLeaderboard() {
     container.innerHTML = `<p class="sub">Error loading leaderboard: ${err.message}</p>`;
   }
 }
+
+// ---------- ONBOARDING ----------
+const ONBOARD_KEY = 'lifequest_onboarded_v1';
+const ONBOARD_SLIDES = [
+  { icon: '🧭', title: 'Welcome to LifeQuest', text: 'Track real experiences, earn XP, and level up your Explorer rank.' },
+  { icon: '✅', title: 'Check things off', text: 'Mark experiences and countries complete in their tabs — XP and achievements update automatically.' },
+  { icon: '👥', title: 'Groups & Leaderboard', text: 'Create a group to compare with friends, or opt in to the public Leaderboard from your Profile.' },
+  { icon: '🗺️', title: 'Explore at your pace', text: 'Try a guided Explorer Path on the Dashboard if you\'re not sure where to start.' },
+];
+let onboardIndex = 0;
+
+function maybeShowOnboarding() {
+  if (localStorage.getItem(ONBOARD_KEY)) return;
+  onboardIndex = 0;
+  renderOnboardSlide();
+  document.getElementById('onboard-modal').style.display = 'flex';
+}
+function renderOnboardSlide() {
+  const slide = ONBOARD_SLIDES[onboardIndex];
+  document.getElementById('onboard-slide-content').innerHTML = `
+    <div class="onboard-slide">
+      <div class="onboard-icon">${slide.icon}</div>
+      <h3>${slide.title}</h3>
+      <p>${slide.text}</p>
+    </div>`;
+  document.getElementById('onboard-dots').innerHTML = ONBOARD_SLIDES
+    .map((_, i) => `<span class="${i === onboardIndex ? 'active' : ''}"></span>`).join('');
+  document.getElementById('onboard-next').textContent =
+    onboardIndex === ONBOARD_SLIDES.length - 1 ? 'Get Started' : 'Next';
+}
+function closeOnboarding() {
+  document.getElementById('onboard-modal').style.display = 'none';
+  localStorage.setItem(ONBOARD_KEY, '1');
+}
+document.getElementById('onboard-skip').addEventListener('click', closeOnboarding);
+document.getElementById('onboard-next').addEventListener('click', () => {
+  if (onboardIndex >= ONBOARD_SLIDES.length - 1) { closeOnboarding(); return; }
+  onboardIndex++;
+  renderOnboardSlide();
+});
+
+// ---------- SHAREABLE CARDS ----------
+function drawShareCard({ eyebrow, title, subtitle }) {
+  const canvas = document.getElementById('share-canvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+
+  ctx.fillStyle = '#131C17';
+  ctx.fillRect(0, 0, w, h);
+  const grad = ctx.createRadialGradient(w * 0.15, h * 0.1, 10, w * 0.15, h * 0.1, w * 0.7);
+  grad.addColorStop(0, 'rgba(199,155,59,0.15)');
+  grad.addColorStop(1, 'rgba(199,155,59,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = '#C79B3B';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(24, 24, w - 48, h - 48);
+
+  // compass motif
+  const cx = w / 2, cy = h * 0.32, r = 70;
+  ctx.strokeStyle = '#C79B3B';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#C79B3B';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r * 0.85); ctx.lineTo(cx + r * 0.22, cy); ctx.lineTo(cx, cy + r * 0.85); ctx.lineTo(cx - r * 0.22, cy);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#3E7C74';
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.85, cy); ctx.lineTo(cx, cy - r * 0.22); ctx.lineTo(cx + r * 0.85, cy); ctx.lineTo(cx, cy + r * 0.22);
+  ctx.closePath(); ctx.fill();
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#9BAE9F';
+  ctx.font = '600 20px Inter, sans-serif';
+  ctx.fillText(eyebrow.toUpperCase(), w / 2, h * 0.52);
+
+  ctx.fillStyle = '#EDE6D6';
+  ctx.font = '700 34px Georgia, serif';
+  wrapCanvasText(ctx, title, w / 2, h * 0.62, w - 100, 40);
+
+  ctx.fillStyle = '#C79B3B';
+  ctx.font = '600 18px Inter, sans-serif';
+  ctx.fillText(subtitle, w / 2, h * 0.82);
+
+  ctx.fillStyle = '#9BAE9F';
+  ctx.font = '600 14px Inter, sans-serif';
+  ctx.fillText('LIFEQUEST · EXPLORER\'S LOG', w / 2, h * 0.92);
+}
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(' ');
+  let line = '', lines = [];
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+    else line = test;
+  }
+  lines.push(line);
+  const startY = y - ((lines.length - 1) * lineHeight) / 2;
+  lines.forEach((l, i) => ctx.fillText(l, x, startY + i * lineHeight));
+}
+function showShareCard(opts) {
+  drawShareCard(opts);
+  document.getElementById('share-modal').style.display = 'flex';
+}
+document.getElementById('share-close').addEventListener('click', () => {
+  document.getElementById('share-modal').style.display = 'none';
+});
+document.getElementById('share-download').addEventListener('click', () => {
+  const canvas = document.getElementById('share-canvas');
+  const link = document.createElement('a');
+  link.download = 'lifequest-share.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+});
+
+// Detect new achievement unlocks / level-ups after any progress change.
+let knownUnlockedIds = null;
+let knownLevel = null;
+function checkForNewUnlocks() {
+  const list = achievementsUnlockedList();
+  const nowUnlocked = new Set(list.filter(a => a.unlocked).map(a => a.name));
+  const xp = totalXP();
+  const { current } = currentLevelInfo(xp);
+
+  if (knownUnlockedIds === null) {
+    // first run this session — just record baseline, don't pop a card
+    knownUnlockedIds = nowUnlocked;
+    knownLevel = current.level;
+    return;
+  }
+  const newlyUnlocked = [...nowUnlocked].filter(name => !knownUnlockedIds.has(name));
+  if (newlyUnlocked.length > 0) {
+    const a = list.find(x => x.name === newlyUnlocked[0]);
+    showShareCard({ eyebrow: 'Achievement Unlocked', title: a.name, subtitle: `+${a.xp} XP` });
+  } else if (current.level > knownLevel) {
+    showShareCard({ eyebrow: 'Level Up', title: `Level ${current.level}`, subtitle: current.rank });
+  }
+  knownUnlockedIds = nowUnlocked;
+  knownLevel = current.level;
+}
+
+// ---------- EXPLORER PATHS ----------
+let activeTrackFilter = null;
+function renderTracks() {
+  const container = document.getElementById('tracks-list');
+  if (!LQ_DATA.tracks || !LQ_DATA.tracks.length) { container.innerHTML = ''; return; }
+  container.innerHTML = LQ_DATA.tracks.map(t => {
+    const completed = t.ids.filter(id => isCompleted(id)).length;
+    return `
+    <div class="track-card">
+      <h4>${t.name}</h4>
+      <p>${t.description}</p>
+      <div class="track-progress">${completed} / ${t.ids.length} complete</div>
+      <button class="view-track-btn" data-track-id="${t.id}">View Track</button>
+    </div>`;
+  }).join('');
+}
+document.getElementById('tracks-list').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.view-track-btn');
+  if (!btn) return;
+  const track = LQ_DATA.tracks.find(t => t.id === btn.dataset.trackId);
+  if (!track) return;
+  activeTrackFilter = track;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('.tab-btn[data-tab=experiences]').classList.add('active');
+  document.getElementById('tab-experiences').classList.add('active');
+  renderExperiences();
+});
+document.getElementById('track-filter-chip').addEventListener('click', (ev) => {
+  if (!ev.target.closest('.clear-track-btn')) return;
+  activeTrackFilter = null;
+  renderExperiences();
+});
 
 // ---------- INIT ----------
 initAuth();

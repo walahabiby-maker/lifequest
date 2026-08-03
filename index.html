@@ -17,6 +17,27 @@
 </head>
 <body>
 
+<div class="onboard-modal" id="onboard-modal" style="display:none;">
+  <div class="onboard-card">
+    <button class="onboard-skip" id="onboard-skip">Skip</button>
+    <div id="onboard-slide-content"></div>
+    <div class="onboard-footer">
+      <div class="onboard-dots" id="onboard-dots"></div>
+      <button class="onboard-next" id="onboard-next">Next</button>
+    </div>
+  </div>
+</div>
+
+<div class="share-modal" id="share-modal" style="display:none;">
+  <div class="share-card-wrap">
+    <button class="onboard-skip" id="share-close">✕</button>
+    <canvas id="share-canvas" width="600" height="600"></canvas>
+    <div class="share-actions">
+      <button id="share-download">Download Image</button>
+    </div>
+  </div>
+</div>
+
 <div class="auth-gate" id="auth-gate">
   <div class="auth-card">
     <svg class="compass" viewBox="0 0 100 100" width="48" height="48" aria-hidden="true">
@@ -125,6 +146,12 @@
         <h3>Recently Unlocked</h3>
         <div id="recent-achievements" class="badge-row"></div>
       </div>
+
+      <div class="tracks-section">
+        <h3>Explorer Paths</h3>
+        <p class="sub">Not sure where to start? Try a guided path.</p>
+        <div id="tracks-list" class="tracks-list"></div>
+      </div>
     </section>
 
     <!-- EXPERIENCES -->
@@ -144,6 +171,7 @@
         </select>
         <select id="exp-filter-season"><option value="">Any Season</option></select>
       </div>
+      <div id="track-filter-chip" style="display:none;" class="track-chip"></div>
       <div class="list-wrap" id="experiences-list"></div>
     </section>
 
@@ -310,6 +338,16 @@
           Show me on the public Leaderboard
         </label>
         <div class="profile-stats" id="profile-stats"></div>
+
+        <div class="referral-box">
+          <label>Your Referral Link</label>
+          <div class="referral-row">
+            <input type="text" id="referral-link" readonly>
+            <button id="referral-copy" type="button">Copy</button>
+          </div>
+          <p class="sub" id="referral-count-text"></p>
+        </div>
+
         <button id="reset-data" class="danger">Reset All Data</button>
       </div>
     </section>
