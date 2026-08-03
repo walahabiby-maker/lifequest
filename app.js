@@ -330,6 +330,8 @@ function renderExperiences() {
   populateSelectOnce('exp-filter-category', LQ_DATA.meta.categories);
   populateSelectOnce('exp-filter-difficulty', LQ_DATA.meta.difficulties);
   populateSelectOnce('exp-filter-season', LQ_DATA.meta.seasons);
+  document.getElementById('experiences-count-sub').textContent =
+    `${LQ_DATA.experiences.length} experiences across ${LQ_DATA.meta.categories.length} categories — track what you've done and what's next`;
 
   const search = document.getElementById('exp-search').value.toLowerCase();
   const cat = document.getElementById('exp-filter-category').value;
@@ -376,6 +378,8 @@ function countryCardHTML(c) {
 function renderCountries() {
   const continents = ["Africa", "Asia", "Europe", "North America", "South America", "Oceania"];
   populateSelectOnce('country-filter-continent', continents);
+  document.getElementById('countries-count-sub').textContent =
+    `${LQ_DATA.countries.length} countries — stamp your passport as you go`;
 
   const search = document.getElementById('country-search').value.toLowerCase();
   const cont = document.getElementById('country-filter-continent').value;
@@ -407,6 +411,11 @@ function waterCardHTML(w) {
   </div>`;
 }
 function renderWaters() {
+  const oceanCount = LQ_DATA.waters.filter(w => w.type === 'Ocean').length;
+  const seaCount = LQ_DATA.waters.filter(w => w.type === 'Sea').length;
+  document.getElementById('waters-count-sub').textContent =
+    `${oceanCount} oceans, ${seaCount} famous seas — mark where you've dived or snorkeled`;
+
   const type = document.getElementById('water-filter-type').value;
   const filtered = LQ_DATA.waters.filter(w => !type || w.type === type);
   document.getElementById('waters-list').innerHTML =
