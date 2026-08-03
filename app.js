@@ -429,7 +429,7 @@ function badgeHTML(a) {
     <div class="badge-seal">${a.unlocked ? '🏆' : '🔒'}</div>
     <div class="badge-name">${a.name}</div>
     <div class="badge-req">${a.req}</div>
-    <div class="badge-progress">${Math.min(a.progress, a.target)} / ${a.target} — +${a.xp} XP</div>
+    <div class="badge-progress">${Math.min(a.progress, a.target)} / ${a.target} complete</div>
   </div>`;
 }
 function renderAchievements() {
@@ -1201,7 +1201,7 @@ function drawShareCard({ eyebrow, title, subtitle }) {
 
   ctx.fillStyle = '#C79B3B';
   ctx.font = '600 18px Inter, sans-serif';
-  ctx.fillText(subtitle, w / 2, h * 0.82);
+  wrapCanvasText(ctx, subtitle, w / 2, h * 0.8, w - 140, 24);
 
   ctx.fillStyle = '#9BAE9F';
   ctx.font = '600 14px Inter, sans-serif';
@@ -1234,6 +1234,50 @@ document.getElementById('share-download').addEventListener('click', () => {
   link.click();
 });
 
+// ---------- TOAST NOTIFICATIONS ----------
+// Achievement/level-up notifications queue one at a time as small,
+// auto-dismissing toasts instead of blocking popups. Clicking a toast
+// opens the full shareable card for that unlock.
+const toastQueue = [];
+let toastShowing = false;
+const TOAST_DURATION_MS = 3500;
+
+function enqueueToast(opts) {
+  toastQueue.push(opts);
+  processToastQueue();
+}
+function processToastQueue() {
+  if (toastShowing || toastQueue.length === 0) return;
+  toastShowing = true;
+  const opts = toastQueue.shift();
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `
+    <span class="toast-icon">${opts.icon || '🏆'}</span>
+    <span>
+      <div class="toast-title">${opts.title}</div>
+      <div class="toast-sub">${opts.toastSub}</div>
+    </span>`;
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    el.classList.add('leaving');
+    setTimeout(() => {
+      el.remove();
+      toastShowing = false;
+      processToastQueue();
+    }, 250);
+  };
+  el.addEventListener('click', () => {
+    showShareCard(opts);
+    dismiss();
+  });
+  container.appendChild(el);
+  setTimeout(dismiss, TOAST_DURATION_MS);
+}
+
 // Detect new achievement unlocks / level-ups after any progress change.
 let knownUnlockedIds = null;
 let knownLevel = null;
@@ -1250,11 +1294,18 @@ function checkForNewUnlocks() {
     return;
   }
   const newlyUnlocked = [...nowUnlocked].filter(name => !knownUnlockedIds.has(name));
-  if (newlyUnlocked.length > 0) {
-    const a = list.find(x => x.name === newlyUnlocked[0]);
-    showShareCard({ eyebrow: 'Achievement Unlocked', title: a.name, subtitle: `+${a.xp} XP` });
-  } else if (current.level > knownLevel) {
-    showShareCard({ eyebrow: 'Level Up', title: `Level ${current.level}`, subtitle: current.rank });
+  for (const name of newlyUnlocked) {
+    const a = list.find(x => x.name === name);
+    enqueueToast({
+      icon: '🏆', eyebrow: 'Achievement Unlocked', title: a.name,
+      subtitle: a.req, toastSub: 'Achievement unlocked — tap to share',
+    });
+  }
+  if (current.level > knownLevel) {
+    enqueueToast({
+      icon: '⭐', eyebrow: 'Level Up', title: `Level ${current.level}`,
+      subtitle: current.rank, toastSub: 'Level up — tap to share',
+    });
   }
   knownUnlockedIds = nowUnlocked;
   knownLevel = current.level;
