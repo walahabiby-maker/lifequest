@@ -175,7 +175,7 @@ function achievementsUnlockedList() {
 }
 
 // ---------- RENDER: DASHBOARD ----------
-let categoryChart = null, continentChart = null;
+let categoryChart = null, continentChart = null, watersChart = null;
 
 function renderDashboard() {
   const xp = totalXP();
@@ -249,6 +249,29 @@ function renderDashboard() {
           scales: {
             x: { ticks: { color: '#9BAE9F', font: { size: 10 } }, grid: { display: false } },
             y: { ticks: { color: '#9BAE9F' }, grid: { color: 'rgba(237,230,214,0.06)' } }
+          }
+        }
+      });
+
+      const ctxWater = document.getElementById('chart-waters').getContext('2d');
+      if (watersChart) watersChart.destroy();
+      watersChart = new Chart(ctxWater, {
+        type: 'bar',
+        data: {
+          labels: ['Oceans', 'Seas'],
+          datasets: [{
+            data: [visitedWaterCountFor(state, 'Ocean'), visitedWaterCountFor(state, 'Sea')],
+            backgroundColor: ['#C79B3B', '#3E7C74'], borderRadius: 4,
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#9BAE9F' }, grid: { display: false } },
+            y: {
+              ticks: { color: '#9BAE9F', stepSize: 1 }, grid: { color: 'rgba(237,230,214,0.06)' },
+              suggestedMax: 10,
+            }
           }
         }
       });
@@ -1019,10 +1042,33 @@ async function renderWorldMap() {
       .attr('stroke', '#131C17')
       .attr('stroke-width', 0.4);
 
+    // Ocean & sea markers — the underlying map has no fillable water
+    // regions, so these show up as dots at each body of water's location.
+    const waterGroup = svg.append('g');
+    waterGroup.selectAll('g.water-marker')
+      .data(LQ_DATA.waters)
+      .join('g')
+      .attr('class', 'water-marker')
+      .attr('transform', w => {
+        const p = projection([w.lon, w.lat]);
+        return p ? `translate(${p[0]},${p[1]})` : 'translate(-9999,-9999)';
+      })
+      .each(function (w) {
+        const g = d3.select(this);
+        const visited = isWaterVisited(w.name);
+        g.append('circle')
+          .attr('r', w.type === 'Ocean' ? 7 : 5)
+          .attr('fill', visited ? '#3E7C74' : 'rgba(237,230,214,0.15)')
+          .attr('stroke', visited ? '#EDE6D6' : 'rgba(237,230,214,0.4)')
+          .attr('stroke-width', 1.2);
+        g.append('title').text(`${w.name}${visited ? ' — visited' : ''}`);
+      });
+
     container.insertAdjacentHTML('beforeend', `
       <div class="map-legend">
-        <span><span class="swatch" style="background:#C79B3B"></span>Visited</span>
-        <span><span class="swatch" style="background:rgba(237,230,214,0.12)"></span>Not yet</span>
+        <span><span class="swatch" style="background:#C79B3B"></span>Country visited</span>
+        <span><span class="swatch" style="background:rgba(237,230,214,0.12)"></span>Country not yet</span>
+        <span><span class="swatch" style="background:#3E7C74;border-radius:50%;"></span>Ocean/Sea visited (dot — hover for name)</span>
       </div>
       <p class="sub" style="margin-top:8px;">A few very small nations (e.g. Vatican City, Monaco) are too small to render at this map scale — they still count correctly in your Countries list and stats.</p>
     `);
