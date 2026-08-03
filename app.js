@@ -406,10 +406,12 @@ function renderTimeline() {
 }
 
 // ---------- RENDER: PROFILE ----------
+let leaderboardOptIn = false;
 function renderProfile() {
   document.getElementById('profile-name').value = state.profile.name || '';
   document.getElementById('profile-motto').value = state.profile.motto || '';
   document.getElementById('profile-since').value = state.profile.since || '';
+  document.getElementById('profile-leaderboard-optin').checked = leaderboardOptIn;
   const xp = totalXP();
   const { current } = currentLevelInfo(xp);
   document.getElementById('profile-stats').innerHTML = `
@@ -429,6 +431,7 @@ function renderAll() {
   safeRender(renderDashboard);
   safeRender(renderExperiences);
   safeRender(renderCountries);
+  safeRender(renderWorldMap);
   safeRender(renderAchievements);
   safeRender(renderStatistics);
   safeRender(renderJournal);
@@ -444,6 +447,9 @@ document.getElementById('tabs').addEventListener('click', (ev) => {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  if (btn.dataset.tab === 'leaderboard') loadLeaderboard();
+  if (btn.dataset.tab === 'groups') loadGroups();
+  if (btn.dataset.tab === 'suggest') loadSuggestions();
 });
 
 document.getElementById('experiences-list').addEventListener('change', (ev) => {
@@ -510,6 +516,19 @@ document.getElementById('timeline-form').addEventListener('submit', (ev) => {
   });
 });
 
+document.getElementById('profile-leaderboard-optin').addEventListener('change', async (ev) => {
+  leaderboardOptIn = ev.target.checked;
+  if (!supabaseClient || !currentUser) return;
+  try {
+    await supabaseClient.from('progress')
+      .update({ leaderboard_opt_in: leaderboardOptIn })
+      .eq('user_id', currentUser.id);
+    loadLeaderboard();
+  } catch (err) {
+    console.error('Failed to update leaderboard opt-in:', err);
+  }
+});
+
 document.getElementById('reset-data').addEventListener('click', () => {
   if (confirm('This will erase all your LifeQuest progress. Are you sure?')) {
     state = EMPTY_STATE();
@@ -553,15 +572,18 @@ async function onLoggedIn(user) {
   await loadRemoteState();
   renderAll();
   loadGroups();
+  loadSuggestions();
+  loadLeaderboard();
 }
 
 async function loadRemoteState() {
   try {
     const { data, error } = await supabaseClient
-      .from('progress').select('data').eq('user_id', currentUser.id).maybeSingle();
+      .from('progress').select('data, leaderboard_opt_in').eq('user_id', currentUser.id).maybeSingle();
     if (error) throw error;
     if (data && data.data && Object.keys(data.data).length) {
       state = { ...EMPTY_STATE(), ...data.data };
+      leaderboardOptIn = !!data.leaderboard_opt_in;
       cacheLocal();
     } else {
       // First login: push whatever local/guest progress exists up to the cloud.
@@ -585,6 +607,8 @@ async function initAuth() {
     document.getElementById('account-email').textContent = 'Local mode (not synced)';
     document.getElementById('logout-btn').style.display = 'none';
     renderAll();
+    loadSuggestions();
+    loadLeaderboard();
     return;
   }
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -702,5 +726,178 @@ document.getElementById('groups-list').addEventListener('click', async (ev) => {
   }
 });
 
+// ---------- SUGGEST EXPERIENCE ----------
+function populateSuggestSelectsOnce() {
+  populateSelectOnce('suggest-category', LQ_DATA.meta.categories);
+  populateSelectOnce('suggest-difficulty', LQ_DATA.meta.difficulties);
+  populateSelectOnce('suggest-cost', LQ_DATA.meta.costs);
+  populateSelectOnce('suggest-season', LQ_DATA.meta.seasons);
+}
+
+async function loadSuggestions() {
+  populateSuggestSelectsOnce();
+  if (!supabaseClient || !currentUser) {
+    document.getElementById('suggest-list').innerHTML =
+      '<p class="sub">Suggestions need cloud sync set up — see the setup instructions.</p>';
+    return;
+  }
+  try {
+    const { data, error } = await supabaseClient
+      .from('experience_suggestions').select('*').eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    document.getElementById('suggest-list').innerHTML = (data || []).map(s => `
+      <div class="entry-card">
+        <div class="entry-meta">${new Date(s.created_at).toLocaleDateString()} · ${s.status}</div>
+        <div class="entry-title">${s.name}</div>
+        <div class="entry-story">${[s.category, s.difficulty, s.cost, s.season].filter(Boolean).join(' · ')}</div>
+      </div>`).join('') || '<p class="sub">You haven\'t submitted any suggestions yet.</p>';
+  } catch (err) {
+    document.getElementById('suggest-list').innerHTML = `<p class="sub">Error: ${err.message}</p>`;
+  }
+}
+
+document.getElementById('suggest-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const statusEl = document.getElementById('suggest-status');
+  if (!supabaseClient || !currentUser) {
+    statusEl.textContent = 'Cloud sync isn\'t set up yet, so suggestions can\'t be submitted.';
+    return;
+  }
+  try {
+    const { error } = await supabaseClient.from('experience_suggestions').insert({
+      user_id: currentUser.id,
+      name: document.getElementById('suggest-name').value,
+      category: document.getElementById('suggest-category').value || null,
+      difficulty: document.getElementById('suggest-difficulty').value || null,
+      cost: document.getElementById('suggest-cost').value || null,
+      season: document.getElementById('suggest-season').value || null,
+      notes: document.getElementById('suggest-notes').value || null,
+    });
+    if (error) throw error;
+    statusEl.textContent = 'Thanks! Your suggestion was submitted.';
+    ev.target.reset();
+    loadSuggestions();
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+  }
+});
+
+// ---------- WORLD MAP ----------
+const MAP_NAME_ALIASES = {
+  "United States": ["United States of America"],
+  "Russia": ["Russian Federation"],
+  "South Korea": ["Republic of Korea", "Korea, Rep."],
+  "North Korea": ["Dem. Rep. Korea", "Korea, Dem. People's Rep."],
+  "Congo, Democratic Republic of the": ["Dem. Rep. Congo", "Democratic Republic of the Congo"],
+  "Congo, Republic of the": ["Congo", "Republic of Congo"],
+  "Cote d'Ivoire": ["Côte d'Ivoire", "Ivory Coast"],
+  "Czechia": ["Czech Rep."],
+  "Eswatini": ["Swaziland"],
+  "Cabo Verde": ["Cape Verde"],
+  "Timor-Leste": ["East Timor"],
+  "Myanmar": ["Burma"],
+  "Tanzania": ["United Republic of Tanzania"],
+  "Bosnia and Herzegovina": ["Bosnia and Herz."],
+  "Central African Republic": ["Central African Rep."],
+  "Dominican Republic": ["Dominican Rep."],
+  "Equatorial Guinea": ["Eq. Guinea"],
+  "South Sudan": ["S. Sudan"],
+  "Solomon Islands": ["Solomon Is."],
+  "Saint Kitts and Nevis": ["St. Kitts and Nevis"],
+  "Saint Lucia": ["St. Lucia"],
+  "Saint Vincent and the Grenadines": ["St. Vin. and Gren."],
+  "Antigua and Barbuda": ["Antigua and Barb."],
+};
+function buildVisitedMapNameSet() {
+  const set = new Set();
+  for (const c of LQ_DATA.countries) {
+    if (!isVisited(c.name)) continue;
+    set.add(c.name);
+    (MAP_NAME_ALIASES[c.name] || []).forEach(alias => set.add(alias));
+  }
+  return set;
+}
+async function renderWorldMap() {
+  const container = document.getElementById('world-map-container');
+  if (typeof d3 === 'undefined' || typeof topojson === 'undefined') {
+    container.innerHTML = '<p class="sub">Map library unavailable right now — check your connection and reload. Your country list and stats are unaffected.</p>';
+    return;
+  }
+  try {
+    if (!window.__worldTopoCache) {
+      window.__worldTopoCache = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json');
+    }
+    const topo = window.__worldTopoCache;
+    const countries = topojson.feature(topo, topo.objects.countries).features;
+    const visitedSet = buildVisitedMapNameSet();
+
+    const width = container.clientWidth || 600;
+    const height = Math.round(width * 0.52);
+    container.innerHTML = '';
+    const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${width} ${height}`);
+    const projection = d3.geoNaturalEarth1().fitSize([width, height], { type: 'Sphere' });
+    const pathGen = d3.geoPath(projection);
+
+    svg.selectAll('path')
+      .data(countries)
+      .join('path')
+      .attr('d', pathGen)
+      .attr('fill', d => visitedSet.has(d.properties.name) ? '#C79B3B' : 'rgba(237,230,214,0.12)')
+      .attr('stroke', '#131C17')
+      .attr('stroke-width', 0.4);
+
+    container.insertAdjacentHTML('beforeend', `
+      <div class="map-legend">
+        <span><span class="swatch" style="background:#C79B3B"></span>Visited</span>
+        <span><span class="swatch" style="background:rgba(237,230,214,0.12)"></span>Not yet</span>
+      </div>
+      <p class="sub" style="margin-top:8px;">A few very small nations (e.g. Vatican City, Monaco) are too small to render at this map scale — they still count correctly in your Countries list and stats.</p>
+    `);
+  } catch (err) {
+    container.innerHTML = `<p class="sub">Couldn't load the map: ${err.message}</p>`;
+  }
+}
+
+// ---------- GLOBAL LEADERBOARD ----------
+async function loadLeaderboard() {
+  const container = document.getElementById('leaderboard-list');
+  if (!supabaseClient) {
+    container.innerHTML = '<p class="sub">The leaderboard needs cloud sync set up — see the setup instructions.</p>';
+    return;
+  }
+  try {
+    const { data, error } = await supabaseClient.rpc('global_leaderboard');
+    if (error) throw error;
+    const rows = (data || []).map(m => {
+      const st = { ...EMPTY_STATE(), ...(m.data || {}) };
+      const xp = totalXPFor(st);
+      const { current } = currentLevelInfo(xp);
+      return {
+        name: m.display_name || 'Explorer', xp, level: current.level, rank: current.rank,
+        completed: completedCountFor(st), countries: visitedCountFor(st),
+      };
+    }).sort((a, b) => b.xp - a.xp);
+    container.innerHTML = rows.map((r, i) => `
+      <div class="summary-row">
+        <span class="rank-num">#${i + 1}</span>
+        <span class="name-cell">${r.name}<br><span class="badge-req">${r.rank} · Lvl ${r.level}</span></span>
+        <span class="metric">${r.xp} XP</span>
+        <span class="metric">${r.completed} exp.</span>
+        <span class="metric">${r.countries} countries</span>
+      </div>`).join('') || '<p class="sub">No one has opted in yet — be the first, in your Profile tab!</p>';
+  } catch (err) {
+    container.innerHTML = `<p class="sub">Error loading leaderboard: ${err.message}</p>`;
+  }
+}
+
 // ---------- INIT ----------
 initAuth();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch((err) => {
+      console.error('Service worker registration failed:', err);
+    });
+  });
+}

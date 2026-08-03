@@ -43,9 +43,11 @@ as $$
 $$;
 
 -- ---- progress policies ----
+drop policy if exists "select own progress" on public.progress;
 create policy "select own progress" on public.progress
   for select using (auth.uid() = user_id);
 
+drop policy if exists "select group members progress" on public.progress;
 create policy "select group members progress" on public.progress
   for select using (
     exists (
@@ -55,17 +57,21 @@ create policy "select group members progress" on public.progress
     )
   );
 
+drop policy if exists "insert own progress" on public.progress;
 create policy "insert own progress" on public.progress
   for insert with check (auth.uid() = user_id);
 
+drop policy if exists "update own progress" on public.progress;
 create policy "update own progress" on public.progress
   for update using (auth.uid() = user_id);
 
 -- ---- groups policies (read-only for members; writes go through RPCs below) ----
+drop policy if exists "select groups you belong to" on public.groups;
 create policy "select groups you belong to" on public.groups
   for select using (public.is_group_member(id));
 
 -- ---- group_members policies ----
+drop policy if exists "select memberships of your groups" on public.group_members;
 create policy "select memberships of your groups" on public.group_members
   for select using (public.is_group_member(group_id));
 
@@ -135,4 +141,55 @@ as $$
   join public.group_members gm on gm.user_id = p.user_id
   where gm.group_id = p_group_id
     and public.is_group_member(p_group_id);
+$$;
+
+-- ============================================================
+-- Experience suggestions — a place for users to propose new
+-- experiences. Review them anytime in Supabase → Table Editor →
+-- experience_suggestions (the dashboard sees every row regardless
+-- of RLS, so no separate admin screen is needed).
+-- ============================================================
+create table if not exists public.experience_suggestions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  category text,
+  difficulty text,
+  cost text,
+  season text,
+  notes text,
+  status text not null default 'pending',
+  created_at timestamptz not null default now()
+);
+alter table public.experience_suggestions enable row level security;
+
+drop policy if exists "insert own suggestion" on public.experience_suggestions;
+create policy "insert own suggestion" on public.experience_suggestions
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "select own suggestions" on public.experience_suggestions;
+create policy "select own suggestions" on public.experience_suggestions
+  for select using (auth.uid() = user_id);
+
+-- ============================================================
+-- Global leaderboard — opt-in only. A user's stats are visible
+-- to other users ONLY if they've turned this on themselves.
+-- ============================================================
+alter table public.progress
+  add column if not exists leaderboard_opt_in boolean not null default false;
+
+drop policy if exists "select public leaderboard rows" on public.progress;
+create policy "select public leaderboard rows" on public.progress
+  for select using (leaderboard_opt_in = true);
+
+create or replace function public.global_leaderboard()
+returns table(display_name text, data jsonb)
+language sql
+security definer
+set search_path = public
+as $$
+  select p.display_name, p.data
+  from public.progress p
+  where p.leaderboard_opt_in = true
+  limit 200;
 $$;

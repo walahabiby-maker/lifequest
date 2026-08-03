@@ -7,6 +7,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#131C17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LifeQuest">
 </head>
 <body>
 
@@ -47,8 +54,11 @@
       <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
       <button class="tab-btn" data-tab="experiences">Experiences</button>
       <button class="tab-btn" data-tab="countries">Countries</button>
+      <button class="tab-btn" data-tab="worldmap">World Map</button>
       <button class="tab-btn" data-tab="achievements">Achievements</button>
       <button class="tab-btn" data-tab="groups">Groups</button>
+      <button class="tab-btn" data-tab="suggest">Suggest Experience</button>
+      <button class="tab-btn" data-tab="leaderboard">Leaderboard</button>
       <button class="tab-btn" data-tab="statistics">Statistics</button>
       <button class="tab-btn" data-tab="journal">Journal</button>
       <button class="tab-btn" data-tab="timeline">Timeline</button>
@@ -155,6 +165,17 @@
       <div class="list-wrap" id="countries-list"></div>
     </section>
 
+    <!-- WORLD MAP -->
+    <section class="tab-panel" id="tab-worldmap">
+      <div class="panel-title">
+        <h2>World Map</h2>
+        <p class="sub">Visited countries fill in as you go</p>
+      </div>
+      <div class="map-card">
+        <div id="world-map-container"><p class="sub">Loading map…</p></div>
+      </div>
+    </section>
+
     <!-- ACHIEVEMENTS -->
     <section class="tab-panel" id="tab-achievements">
       <div class="panel-title">
@@ -190,6 +211,36 @@
         <h3 class="section-label" id="group-summary-title">Group Summary</h3>
         <div id="group-summary" class="list-wrap"></div>
       </div>
+    </section>
+
+    <!-- LEADERBOARD -->
+    <section class="tab-panel" id="tab-leaderboard">
+      <div class="panel-title">
+        <h2>Global Leaderboard</h2>
+        <p class="sub">Everyone who's opted in, ranked by XP. Turn this on for yourself in your Profile.</p>
+      </div>
+      <div id="leaderboard-list" class="list-wrap"></div>
+    </section>
+
+    <!-- SUGGEST EXPERIENCE -->
+    <section class="tab-panel" id="tab-suggest">
+      <div class="panel-title">
+        <h2>Suggest an Experience</h2>
+        <p class="sub">Think of something that should be in the database? Submit it here.</p>
+      </div>
+      <form class="entry-form" id="suggest-form">
+        <input type="text" id="suggest-name" placeholder="Experience name" required>
+        <select id="suggest-category"><option value="">Category (optional)</option></select>
+        <select id="suggest-difficulty"><option value="">Difficulty (optional)</option></select>
+        <select id="suggest-cost"><option value="">Cost (optional)</option></select>
+        <select id="suggest-season"><option value="">Season (optional)</option></select>
+        <textarea id="suggest-notes" placeholder="Why should this be added? (optional)" rows="2"></textarea>
+        <button type="submit">Submit Suggestion</button>
+      </form>
+      <p class="auth-status" id="suggest-status"></p>
+
+      <h3 class="section-label">Your Submitted Suggestions</h3>
+      <div id="suggest-list" class="entry-list"></div>
     </section>
 
     <!-- STATISTICS -->
@@ -254,6 +305,10 @@
         <label>Member Since
           <input type="date" id="profile-since">
         </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="profile-leaderboard-optin">
+          Show me on the public Leaderboard
+        </label>
         <div class="profile-stats" id="profile-stats"></div>
         <button id="reset-data" class="danger">Reset All Data</button>
       </div>
@@ -265,6 +320,8 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="data.js"></script>
