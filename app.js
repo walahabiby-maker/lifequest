@@ -12,7 +12,7 @@ let myReferredBy = null;
 
 // ---------- STATE ----------
 const STORAGE_KEY = 'lifequest_state_v1';
-const EMPTY_STATE = () => ({ experiences: {}, countries: {}, profile: {}, journal: [], timeline: [] });
+const EMPTY_STATE = () => ({ experiences: {}, countries: {}, waters: {}, profile: {}, journal: [], timeline: [] });
 
 function loadLocalState() {
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -57,6 +57,14 @@ function isVisitedFor(st, countryName) {
 }
 function isCompleted(expId) { return isCompletedFor(state, expId); }
 function isVisited(countryName) { return isVisitedFor(state, countryName); }
+
+function isWaterVisitedFor(st, waterName) {
+  return !!(st.waters && st.waters[waterName] && st.waters[waterName].visited);
+}
+function isWaterVisited(waterName) { return isWaterVisitedFor(state, waterName); }
+function visitedWaterCountFor(st, type) {
+  return LQ_DATA.waters.filter(w => (!type || w.type === type) && isWaterVisitedFor(st, w.name)).length;
+}
 
 function totalXPFor(st) {
   let xp = 0;
@@ -150,6 +158,10 @@ function achievementProgress(a) {
     }
     case 'referralCount':
       return myReferralCount;
+    case 'waterCount':
+      return visitedWaterCountFor(state, a.waterType);
+    case 'idListCount':
+      return completedExps.filter(e => a.ids.includes(e.id)).length;
     default:
       return 0;
   }
@@ -358,6 +370,26 @@ function renderCountries() {
     filtered.map(countryCardHTML).join('') || '<p class="sub">No countries match those filters.</p>';
 }
 
+// ---------- RENDER: WATERS ----------
+function waterCardHTML(w) {
+  const visited = isWaterVisited(w.name);
+  return `
+  <div class="list-item ${visited ? 'completed' : ''}" data-name="${w.name}">
+    <input type="checkbox" class="water-check" data-name="${w.name}" ${visited ? 'checked' : ''}>
+    <div>
+      <div class="item-name">${w.name}</div>
+      <div class="item-tags"><span class="tag tag-cat">${w.type}</span></div>
+    </div>
+    <div></div>
+  </div>`;
+}
+function renderWaters() {
+  const type = document.getElementById('water-filter-type').value;
+  const filtered = LQ_DATA.waters.filter(w => !type || w.type === type);
+  document.getElementById('waters-list').innerHTML =
+    filtered.map(waterCardHTML).join('') || '<p class="sub">No bodies of water match that filter.</p>';
+}
+
 // ---------- RENDER: ACHIEVEMENTS ----------
 function badgeHTML(a) {
   return `
@@ -466,6 +498,7 @@ function renderAll() {
   safeRender(renderDashboard);
   safeRender(renderExperiences);
   safeRender(renderCountries);
+  safeRender(renderWaters);
   safeRender(renderWorldMap);
   safeRender(renderAchievements);
   safeRender(renderTracks);
@@ -539,10 +572,25 @@ document.getElementById('countries-list').addEventListener('change', (ev) => {
   checkForNewUnlocks();
 });
 
+document.getElementById('waters-list').addEventListener('change', (ev) => {
+  if (!ev.target.classList.contains('water-check')) return;
+  const name = ev.target.dataset.name;
+  if (!state.waters) state.waters = {};
+  if (!state.waters[name]) state.waters[name] = {};
+  state.waters[name].visited = ev.target.checked;
+  if (ev.target.checked && !state.waters[name].dateVisited) {
+    state.waters[name].dateVisited = new Date().toISOString().slice(0, 10);
+  }
+  saveState();
+  renderAll();
+  checkForNewUnlocks();
+});
+
 ['exp-search', 'exp-filter-category', 'exp-filter-difficulty', 'exp-filter-status', 'exp-filter-season']
   .forEach(id => document.getElementById(id).addEventListener('input', renderExperiences));
 ['country-search', 'country-filter-continent', 'country-filter-status']
   .forEach(id => document.getElementById(id).addEventListener('input', renderCountries));
+document.getElementById('water-filter-type').addEventListener('input', renderWaters);
 
 document.getElementById('journal-form').addEventListener('submit', (ev) => {
   ev.preventDefault();
