@@ -611,6 +611,12 @@ document.getElementById('reset-data').addEventListener('click', () => {
     state = EMPTY_STATE();
     saveState();
     renderAll();
+    // Also reset the achievement/level "what's new" tracker, otherwise
+    // re-unlocking something you'd already unlocked before the reset
+    // won't pop a share card (it'd look like nothing changed).
+    knownUnlockedIds = null;
+    knownLevel = null;
+    checkForNewUnlocks();
   }
 });
 
